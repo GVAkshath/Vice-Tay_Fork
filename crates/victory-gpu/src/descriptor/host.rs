@@ -17,13 +17,13 @@ use crate::host::host;
 /// Distinguishes host heaps even when a title heap address is reused.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Bound dynamic raw views to their host buffer. Set `VICTORY_RAW_VIEW_CLAMP=0`
-/// to use the requested range without querying the host width. Ported from
+/// Bound dynamic raw views to their host buffer. Opt in with
+/// `VICTORY_RAW_VIEW_CLAMP=1`; unset keeps the requested range without a query. Ported from
 /// `fxceless/victory-fork` pull request 1266 (`dd5e8c9e`) / `VIctory-NVIDIA`
 /// (`aec85ef`).
 fn raw_view_clamp() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_RAW_VIEW_CLAMP").is_none_or(|v| v != "0"))
+    *ON.get_or_init(|| std::env::var_os("VICTORY_RAW_VIEW_CLAMP").is_some_and(|v| v == "1"))
 }
 
 /// A set of a heap's slots, a bit for each: no lock (a pass that went through
