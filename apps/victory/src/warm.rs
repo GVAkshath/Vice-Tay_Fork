@@ -21,6 +21,27 @@ const LONGEST: Duration = Duration::from_secs(180);
 /// As the runs count one that takes long.
 const SLOW_MS: f64 = 1000.0;
 
+/// Version the completion marker: older records did not distinguish a
+/// successfully created host pipeline from a refused recipe.
+fn done_prefix(fingerprint: &str) -> String {
+    format!("made-v1:{fingerprint}")
+}
+
+fn done_keys(listed: &str, fingerprint: &str) -> HashSet<String> {
+    let prefix = done_prefix(fingerprint);
+    listed
+        .lines()
+        .filter_map(|line| {
+            let (version, key) = line.split_once(' ')?;
+            (version == prefix).then(|| key.to_owned())
+        })
+        .collect()
+}
+
+fn done_record(fingerprint: &str, key: &str, success: bool) -> Option<String> {
+    success.then(|| format!("{} {key}", done_prefix(fingerprint)))
+}
+
 fn folder() -> Result<PathBuf> {
     let cfg = victory_core::Config::load()?;
     Ok(cfg.cache_subdir("shaders")?.with_file_name("pipelines"))
@@ -42,14 +63,7 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
     let bad_file = dir.join("warm-bad.txt");
     let entries = known::warm_entries(&dir);
     let listed = std::fs::read_to_string(&done_file).unwrap_or_default();
-    let mut done: HashSet<&str> = HashSet::new();
-    for line in listed.lines() {
-        if let Some((of, key)) = line.split_once(' ')
-            && of == fingerprint
-        {
-            done.insert(key);
-        }
-    }
+    let done = done_keys(&listed, &fingerprint);
     let bad = std::fs::read_to_string(&bad_file).unwrap_or_default();
     let bad: HashSet<&str> = bad.lines().filter_map(|l| l.split(' ').next()).collect();
     let early = std::fs::read_to_string(dir.join("early-pipelines.txt")).unwrap_or_default();
@@ -95,7 +109,10 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
                 println!("{count} of {}, {:.0} s", all.len(), began.elapsed().as_secs_f64());
             }
             drop(state);
-            writeln!(lock(&done_out), "{fingerprint} {}", entries[n].key).context("writing warm-done.txt")
+            if let Some(record) = done_record(&fingerprint, &entries[n].key, there) {
+                writeln!(lock(&done_out), "{record}").context("writing warm-done.txt")?;
+            }
+            Ok(())
         },
         |n, why| {
             println!("pipeline {n} {}: {why}", entries[n].key);
@@ -358,6 +375,20 @@ mod tests {
             .stdout(stdout)
             .stderr(Stdio::null())
             .spawn()?)
+    }
+
+    #[test]
+    fn only_successful_pipeline_creations_are_reused() {
+        let fingerprint = "translator-driver-fingerprint";
+        let old_record = format!("{fingerprint} legacy-key");
+        let success = done_record(fingerprint, "created-key", true).unwrap();
+        let refusal = done_record(fingerprint, "refused-key", false);
+        assert!(refusal.is_none(), "a refused pipeline must remain eligible for a later warm");
+
+        let other_fingerprint = format!("{} other-key", done_prefix("another-fingerprint"));
+        let listed = format!("{old_record}\n{success}\n{other_fingerprint}\n");
+        let done = done_keys(&listed, fingerprint);
+        assert_eq!(done, HashSet::from(["created-key".to_owned()]));
     }
 
     #[test]
