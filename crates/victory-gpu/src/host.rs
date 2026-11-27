@@ -3061,11 +3061,27 @@ fn landable(line: &[Option<u64>], completed: u64) -> usize {
 /// 64 KiB piece; the compare hashes the whole piece for each and stores
 /// the hash, so the second of them may find it stored already and not
 /// flag it.
-fn flagged_pieces(flags: &[(usize, u32, bool)]) -> Vec<(usize, u32)> {
-    let mut pieces: Vec<(usize, u32)> = flags.iter().filter(|f| f.2).map(|f| (f.0, f.1)).collect();
+fn flagged_pieces(flags: impl Iterator<Item = (usize, u32, bool)>) -> Vec<(usize, u32)> {
+    let mut pieces: Vec<_> = flags
+        .filter_map(|(copy, piece, wanted)| wanted.then_some((copy, piece)))
+        .collect();
     pieces.sort_unstable();
     pieces.dedup();
     pieces
+}
+
+/// Indices within one range, in the same order as scanning its pieces.
+fn flagged_in_range(
+    pieces: &[(usize, u32)],
+    copy: usize,
+    first: u32,
+    count: u32,
+) -> impl Iterator<Item = u32> + '_ {
+    let start = pieces.partition_point(|&key| key < (copy, first));
+    pieces[start..]
+        .iter()
+        .take_while(move |&&(owner, piece)| owner == copy && piece - first < count)
+        .map(move |&(_, piece)| piece - first)
 }
 
 #[cfg(test)]
@@ -4385,6 +4401,7 @@ fn late_line(frames: f64) {
 }
 
 pub(crate) mod aside;
+mod prelude_pool;
 pub(crate) mod awake;
 mod mapping_fence;
 mod title_stock;
