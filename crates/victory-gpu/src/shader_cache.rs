@@ -308,7 +308,10 @@ fn cached_by_with(
             }
             return Ok((shader, false));
         }
-        let path = entry.map_err(|e| format!("{e:#}"))?;
+        let path = entry.map_err(|e| {
+            let message = format!("{e:#}");
+            if require_cache_write { format!("shader cache read/write failed: {message}") } else { message }
+        })?;
         if let Some((shader, made_by)) = std::fs::read(&path).ok().and_then(|b| decode(&b)) {
             if made_by != source.as_bytes() {
                 STALE.fetch_add(1, Ordering::Relaxed);
