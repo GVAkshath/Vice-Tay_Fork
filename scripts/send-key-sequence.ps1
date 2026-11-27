@@ -25,7 +25,7 @@ $directory = Split-Path -Parent $keyPath
 if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
-if (Test-Path -LiteralPath $keyPath -or Test-Path -LiteralPath $takenPath) {
+if ((Test-Path -LiteralPath $keyPath) -or (Test-Path -LiteralPath $takenPath)) {
     throw "The key channel is already in use: $keyPath"
 }
 
