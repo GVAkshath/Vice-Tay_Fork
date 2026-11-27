@@ -15,6 +15,11 @@ threshold can exclude menu samples. Keep the same scene and check the sample
 count in both runs. The script reads console reports copied with line breaks
 between fields, including in the header.
 
+Pass `-TextureProgress` to report the indexed-texture counters from each
+matching frame report. Compare the UTC time, draws per frame, uploaded
+textures and MiB, waiting textures and slots passed over as unmapped.
+Use the same time and draw filters to compare a selected load interval.
+
 In the diagnostics memory report, the private-byte delta near the host-list
 counts sums process-wide changes sampled during list creation. Concurrent
 calls can overlap, and other threads can allocate or free memory in the same
