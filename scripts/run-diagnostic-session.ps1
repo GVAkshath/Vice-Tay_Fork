@@ -25,6 +25,8 @@ param(
     [switch]$CaptureFailedShaderDumps,
     [switch]$WarmUsedPipelines,
 
+    [hashtable]$More = @{},
+
     [string]$ReportRoot = $(if ($env:LOCALAPPDATA) {
         Join-Path $env:LOCALAPPDATA 'Vice-Tay\sessions'
     } else {
@@ -60,6 +62,12 @@ $warmLog = Join-Path $sessionDir 'pipeline-warm.log'
 $failureDumpDir = Join-Path $sessionDir 'failed-shaders'
 
 $more = @{ VICTORY_PIPELINE_BOOK = '1' }
+foreach ($key in $More.Keys) {
+    if ($key -eq 'VICTORY_PIPELINE_BOOK') {
+        throw 'VICTORY_PIPELINE_BOOK is managed by this script and cannot be overridden through -More.'
+    }
+    $more[$key] = [string]$More[$key]
+}
 if ($CaptureFailedShaderDumps) {
     New-Item -ItemType Directory -Path $failureDumpDir -Force | Out-Null
     $more.VICTORY_FAIL_DUMP = $failureDumpDir
