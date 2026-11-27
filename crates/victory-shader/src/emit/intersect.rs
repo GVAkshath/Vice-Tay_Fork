@@ -44,8 +44,8 @@ thread_local! {
 }
 
 /// Whether a node test answers "no hit" and reads nothing
-/// (auto-on whenever `VICTORY_BVH_BUILDER != 1`; `VICTORY_BVH_NO_HIT=0` turns
-/// it off; never on with `VICTORY_BVH_BUILDER=1`).
+/// (opt-in with `VICTORY_BVH_NO_HIT=1`; unset or `0` keeps full traversal;
+/// never on with `VICTORY_BVH_BUILDER=1`).
 ///
 /// With the structure builder off, ray-traced passes still run and walk
 /// unrehydrated packed memory. Answering no hit lets every ray leave on its
