@@ -658,8 +658,8 @@ fn make(
     let mut resolve_root: Option<ID3D12RootSignature> = None;
     let mut indirect_root: Option<ID3D12RootSignature> = None;
     let mut pipeline = |part: &str, entry| -> windows::core::Result<ID3D12PipelineState> {
-        let chromatic = if part == "RAISE" && chromatic_scrub { "#define CHROMATIC_SCRUB\\n" } else { "" };
-        let code = crate::host::compile(&format!("#define {part}\\n{chromatic}{SOURCE}"), entry, s!("cs_5_1"))?;
+        let chromatic = if part == "RAISE" && chromatic_scrub { "#define CHROMATIC_SCRUB\n" } else { "" };
+        let code = crate::host::compile(&format!("#define {part}\n{chromatic}{SOURCE}"), entry, s!("cs_5_1"))?;
         let root = match part {
             "PLACE" | "GATHER" | "RAISE" => &mut resolve_root,
             "HOLD_INDIRECT" => &mut indirect_root,
