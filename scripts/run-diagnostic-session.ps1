@@ -94,17 +94,22 @@ Write-Host "Vice-Tay SHA-256: $victoryHash"
 Write-Host 'Pipeline-book recording is enabled for this run.'
 if ($CaptureFailedShaderDumps) { Write-Host "Failed shader dumps: $failureDumpDir" }
 
+Push-Location $repoRoot
 try {
-    & $playScript @playArgs *>&1 | Tee-Object -FilePath $consoleLog
-    $exitCode = $LASTEXITCODE
-} catch {
-    $_ | Out-String | Add-Content -LiteralPath $consoleLog -Encoding UTF8
-    $exitCode = 1
-}
+    try {
+        & $playScript @playArgs *>&1 | Tee-Object -FilePath $consoleLog
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $_ | Out-String | Add-Content -LiteralPath $consoleLog -Encoding UTF8
+        $exitCode = 1
+    }
 
-if ($WarmUsedPipelines) {
-    & $victoryExe warm --used *>&1 | Tee-Object -FilePath $warmLog
-    $warmExit = $LASTEXITCODE
+    if ($WarmUsedPipelines) {
+        & $victoryExe warm --used *>&1 | Tee-Object -FilePath $warmLog
+        $warmExit = $LASTEXITCODE
+    }
+} finally {
+    Pop-Location
 }
 
 $result = [ordered]@{
