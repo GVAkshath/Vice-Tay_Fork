@@ -672,7 +672,7 @@ fn a_descriptor_of_numbers_is_title_memory_read_through_the_directory() {
 
 /// Pure env policy check for `VICTORY_BVH_NO_HIT` / `VICTORY_BVH_BUILDER`.
 #[test]
-fn bvh_no_hit_policy_auto_enables_only_when_builder_is_off() {
+fn bvh_no_hit_policy_requires_explicit_opt_in() {
     use std::ffi::OsStr;
     let s = OsStr::new;
     assert!(super::bvh_no_hit_for(None, None));
