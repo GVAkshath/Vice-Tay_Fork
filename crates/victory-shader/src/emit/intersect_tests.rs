@@ -675,8 +675,8 @@ fn a_descriptor_of_numbers_is_title_memory_read_through_the_directory() {
 fn bvh_no_hit_policy_requires_explicit_opt_in() {
     use std::ffi::OsStr;
     let s = OsStr::new;
-    assert!(super::bvh_no_hit_for(None, None));
-    assert!(super::bvh_no_hit_for(None, Some(s("0"))));
+    assert!(!super::bvh_no_hit_for(None, None));
+    assert!(!super::bvh_no_hit_for(None, Some(s("0"))));
     assert!(super::bvh_no_hit_for(Some(s("1")), None));
     assert!(super::bvh_no_hit_for(Some(s("1")), Some(s("0"))));
     assert!(!super::bvh_no_hit_for(Some(s("0")), None));
