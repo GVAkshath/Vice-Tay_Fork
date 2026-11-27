@@ -115,7 +115,7 @@ impl DeadRtPolicy {
         skip_gather_copy_env: Option<&std::ffi::OsStr>,
     ) -> Self {
         let builder_on = builder_env.is_some_and(|v| v == "1");
-        let skip_dead = !builder_on && no_hit && skip_dead_env.is_none_or(|v| v != "0");
+        let skip_dead = !builder_on && no_hit && skip_dead_env.is_some_and(|v| v == "1");
         let skip_gather_copy =
             skip_dead && skip_gather_copy_env.is_some_and(|v| v == "1");
         Self {
