@@ -67,13 +67,14 @@ https://github.com/user-attachments/assets/bd07891c-c53f-4f46-9b7e-80463c379b84
    .\scripts\play.ps1 -Exe 'D:\victory-data\game\game.exe' -Console series-s
    ```
 
-Use [`Play-VIctory.cmd`](Play-VIctory.cmd) to pass the same options from Command Prompt. Double-click it to enter the executable's path at a prompt. The launcher defaults to full screen, the Series X profile and an automatic GPU preset. **F11** or **Alt+Enter** toggles full screen during play.
+Use [`Play-VIctory.cmd`](Play-VIctory.cmd) to pass the same options from Command Prompt. Double-click it to enter the executable's path at a prompt. The launcher defaults to full screen and the Series X profile. With `-Machine auto`, an NVIDIA PC reporting around 16 GiB of physical RAM selects the low-memory laptop preset; other NVIDIA systems use the 4090 preset and AMD systems use the 7900 XTX preset. **F11** or **Alt+Enter** toggles full screen during play.
 
 | Option | Use it to |
 | --- | --- |
 | `-Console series-s` | Select the lighter console profile used in the sessions above. |
 | `-Machine 4090` / `-Machine 4070` / `-Machine 7900xtx` | Select a GPU preset explicitly. See the [RTX 4070 test notes](docs/rtx4070-performance.md). |
-| `-Machine laptop` | Try the [16 GB NVIDIA laptop preset](docs/laptop-16gb.md), measured on one RTX 3050 laptop. |
+| `-Machine auto` | Choose a memory-aware preset: NVIDIA with around 16 GiB RAM selects `laptop`; other NVIDIA/AMD systems use the vendor defaults. |
+| `-Machine laptop` | Use the [16 GB NVIDIA laptop preset](docs/laptop-16gb.md), measured on one RTX 3050 laptop; RTX 5060/G14 performance is not yet benchmarked. |
 | `-Safe` | Launch with the conservative settings when investigating a graphics or stability issue. |
 | `-Windowed` / `-NoPanel` | Start in a window or hide the diagnostics overlay at launch. |
 | `-RayTracing` | Enable the structures needed for the title's ray-traced indirect lighting. |
@@ -192,6 +193,9 @@ For banding that varies between launches, add `-More @{VICTORY_RTV_FORMAT_LOG='1
 - **Loader and runtime.** `victory-loader` maps the title executable. `victory-hle` supplies the console services it expects. [Architecture](docs/architecture.md)
 - **Graphics.** `victory-gpu` maps console command lists and resource views to host D3D12. `victory-shader` recompiles shaders, including Xbox wave64 programs on NVIDIA hardware. Vice-Tay reclaims temporary resource views when the GPU finishes using them, reducing dropped draws when the descriptor heap fills. [Changes in Vice-Tay](docs/this-fork.md)
 - **Verification.** CI runs Clippy, the workspace tests in default and diagnostics configurations, and the asset policy check. Performance changes are compared on the same route, build base and session length. [Test procedure and run logs](docs/tests.md) · [CI workflow](.github/workflows/ci.yml)
+- **Shader triage.** [Collect a repeatable shader and pipeline report](docs/shader-triage.md) with the offline precompiler, per-program translator report and optional used-pipeline warm-up.
+- **Gameplay diagnostics.** [Capture a reproducible game session](docs/shader-triage.md#capture-a-game-session) with console logs, executable hashes, shader-failure dumps and pipeline-book warm-up.
+- **Input replay.** [Send timed keyboard sequences](docs/shader-triage.md#replay-a-timed-input-plan) through the project's GameInput test hook for repeatable menu and scene setup.
 
 See the [upstream usage notes](docs/README-fxceless.md) for additional commands and [frame replay](docs/replay.md) for capturing and replaying a frame locally.
 

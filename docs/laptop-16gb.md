@@ -1,6 +1,6 @@
 # A 16 GB laptop: `-Machine laptop`
 
-`scripts\play.ps1 -Machine laptop` gives these settings. Ask for them explicitly; `-Machine auto` doesn't pick them, because they were measured on one laptop:
+`scripts\play.ps1 -Machine laptop` gives these settings. The launcher now selects this preset automatically when an NVIDIA PC reports roughly 16 GiB of physical RAM (14–18 GiB), or it can be selected explicitly. The measurements below are still from one RTX 3050 laptop; an RTX 5060 G14 has not yet been benchmarked:
 
 | Part | |
 |---|---|

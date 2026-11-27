@@ -19,6 +19,16 @@ use victory_shader::{io, resource};
 
 use crate::shader::{MAX_FILE, Source, scan::FileScan, sources};
 
+/// Distinguish cache persistence failures from unsupported shader instructions.
+/// Unsupported shaders may be reported and skipped; an offline cache build must
+/// return a failing exit code when a shader was translated but not persisted.
+fn is_shader_cache_failure(why: &str) -> bool {
+    why.starts_with("shader cache is unavailable")
+        || why.starts_with("shader cache read/write failed:")
+        || why.starts_with("shader translated but cache write failed:")
+        || why.starts_with("shader translated but no readable cache entry could be persisted")
+}
+
 #[derive(Default)]
 struct Tally {
     containers: usize,
@@ -183,7 +193,7 @@ pub fn warm(paths: Vec<PathBuf>, file: &Path, jobs: Option<usize>, wave: Option<
     let threads = jobs.unwrap_or(4).max(1);
     let began = std::time::Instant::now();
     let done = Mutex::new(HashSet::new());
-    let counts = [const { AtomicUsize::new(0) }; 5];
+    let counts = [const { AtomicUsize::new(0) }; 6];
     for root in &paths {
         for entry in walkdir::WalkDir::new(root).into_iter().filter_map(Result::ok) {
             if !entry.file_type().is_file() || entry.metadata().map_or(0, |m| m.len()) > MAX_FILE {
@@ -216,7 +226,12 @@ pub fn warm(paths: Vec<PathBuf>, file: &Path, jobs: Option<usize>, wave: Option<
                             let which = match victory_hle::modules::d3d12x::warm_shader(&bytes) {
                                 Ok(true) => 0,
                                 Ok(false) => 1,
-                                Err(_) => 2,
+                                Err(why) => {
+                                    if is_shader_cache_failure(&why) {
+                                        counts[5].fetch_add(1, Ordering::Relaxed);
+                                    }
+                                    2
+                                }
                             };
                             counts[which].fetch_add(1, Ordering::Relaxed);
                         }
@@ -228,11 +243,15 @@ pub fn warm(paths: Vec<PathBuf>, file: &Path, jobs: Option<usize>, wave: Option<
     let [translated, there, failed] = [0, 1, 2].map(|i| counts[i].load(Ordering::Relaxed));
     let asked = if all { "all".to_owned() } else { wanted.len().to_string() };
     let stopped = if counts[3].load(Ordering::Relaxed) > 0 { " (stopped at the time limit)" } else { "" };
+    let cache_failures = counts[5].load(Ordering::Relaxed);
     println!(
-        "warm-up      {asked} hashes asked, {} found: {translated} translated now, {there} in the cache already, {failed} do not translate; {:.1} s on {threads} threads{stopped}",
+        "warm-up      {asked} hashes asked, {} found: {translated} translated now, {there} in the cache already, {failed} failed to translate or cache ({cache_failures} cache I/O failures); {:.1} s on {threads} threads{stopped}",
         translated + there + failed,
         began.elapsed().as_secs_f64()
     );
+    if cache_failures > 0 {
+        anyhow::bail!("{cache_failures} shader cache I/O failures; the offline cache is incomplete");
+    }
     Ok(())
 }
 
@@ -420,6 +439,7 @@ pub fn precompile(paths: Vec<PathBuf>, jobs: Option<usize>, list: Option<PathBuf
     let seen = Mutex::new(HashSet::new());
     let done = AtomicUsize::new(0);
     let failed = Mutex::new(BTreeMap::<String, (usize, String)>::new());
+    let cache_failures = AtomicUsize::new(0);
     let lines = Mutex::new(Vec::<String>::new());
     let mut scan = FileScan::new(MAX_FILE, false);
     for root in &paths {
@@ -443,6 +463,9 @@ pub fn precompile(paths: Vec<PathBuf>, jobs: Option<usize>, list: Option<PathBuf
                                     }
                                 }
                                 Err(why) => {
+                                    if is_shader_cache_failure(&why) {
+                                        cache_failures.fetch_add(1, Ordering::Relaxed);
+                                    }
                                     let hex = hash.to_hex()[..16].to_owned();
                                     if list.is_some() {
                                         let line = format!("{hex}	{}{}	{why}", path.display(), job.label());
@@ -467,7 +490,7 @@ pub fn precompile(paths: Vec<PathBuf>, jobs: Option<usize>, list: Option<PathBuf
 ")?;
     }
     println!(
-        "{} shaders in the cache, {} do not translate, {:.0} s",
+        "{} shaders in the cache, {} failed to translate or cache, {:.0} s",
         done.load(Ordering::Relaxed),
         failed.values().map(|f| f.0).sum::<usize>(),
         started.elapsed().as_secs_f64()
@@ -487,6 +510,10 @@ pub fn precompile(paths: Vec<PathBuf>, jobs: Option<usize>, list: Option<PathBuf
         println!("  {n:>5}  {why}  (e.g. {hash})");
     }
     println!("{scan}");
+    let cache_failures = cache_failures.load(Ordering::Relaxed);
+    if cache_failures > 0 {
+        anyhow::bail!("{cache_failures} shader cache I/O failures; the offline cache is incomplete");
+    }
     Ok(())
 }
 
@@ -1026,5 +1053,19 @@ mod tests {
             ),
             "{err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod cache_failure_tests {
+    use super::is_shader_cache_failure;
+
+    #[test]
+    fn cache_write_errors_are_distinguished_from_unsupported_shaders() {
+        assert!(is_shader_cache_failure("shader translated but cache write failed: permission denied"));
+        assert!(is_shader_cache_failure("shader cache read/write failed: disk error"));
+        assert!(is_shader_cache_failure("shader cache is unavailable; offline precompilation requires a writable cache"));
+        assert!(!is_shader_cache_failure("no wave32 lowering for this wave64 program is not supported"));
+        assert!(!is_shader_cache_failure("resources: unsupported address calculation"));
     }
 }

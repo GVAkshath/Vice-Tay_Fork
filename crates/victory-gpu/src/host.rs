@@ -866,8 +866,9 @@ pub(crate) static ALIVE: [std::sync::atomic::AtomicU64; 8] = [const { std::sync:
 /// About host lists, for the memory line: lists made by the host since the
 /// start; preludes made (a list's second allocator and list, made when it
 /// first needs one, [`lazy_prelude`]); and, in diagnostics builds, the
-/// sum of process-wide private-byte deltas around list creation. Samples
-/// include other threads' work and can overlap across concurrent calls.
+/// bytes the process's private memory grew by while lists were being made
+/// (what a list costs: host objects with the driver's command memory; 631
+/// lists were alive in run 65, each with a prelude it may never use).
 /// Then the lists alive that were never reset since they were made: the
 /// host sides of title lists the title made and has not used (a host list
 /// cost 0.68 MB of private memory in run 69: 431 MB for the 632 the title
@@ -1302,7 +1303,7 @@ pub(crate) struct HostList {
     twins: Mutex<std::collections::HashMap<usize, TwinUse>>,
     /// The list that runs those transitions just before this one, made
     /// when the list first has such transitions ([`lazy_prelude`]).
-    prelude: prelude_pool::Slot,
+    prelude: OnceLock<Option<Prelude>>,
     /// The pipelines the list binds, for reports of slow submissions.
     pipelines: std::sync::Arc<Mutex<std::collections::BTreeSet<String>>>,
     /// What its indirect executions ran, for the report of a removed device.
@@ -3115,7 +3116,7 @@ mod relay_tests {
         // Copy a: piece 3 under two ranges, flagged under the first only;
         // piece 4 not flagged; copy b: piece 3 not flagged, piece 9 flagged.
         let flags = [(a, 3, true), (a, 4, false), (a, 3, false), (b, 3, false), (b, 9, true)];
-        let fetch = flagged_pieces(flags.into_iter());
+        let fetch = flagged_pieces(&flags);
         assert!(fetch.contains(&(a, 3)));
         assert!(!fetch.contains(&(a, 4)));
         assert!(!fetch.contains(&(b, 3)));
@@ -4433,9 +4434,9 @@ fn late_line(frames: f64) {
 }
 
 pub(crate) mod aside;
+mod prelude_pool;
 pub(crate) mod awake;
 mod mapping_fence;
-mod prelude_pool;
 mod title_stock;
 mod card_steps;
 pub(crate) mod indirects;
@@ -4887,7 +4888,10 @@ impl Host {
                 &allocator,
                 None,
             )?;
-            let prelude = prelude_pool::Slot::new(self);
+            let prelude = OnceLock::new();
+            if !lazy_prelude() {
+                let _ = prelude.set(self.make_prelude());
+            }
             #[cfg(feature = "diagnostics")]
             let notes = std::sync::Arc::<Mutex<Vec<Note>>>::default();
             let pipelines = std::sync::Arc::<Mutex<std::collections::BTreeSet<String>>>::default();
@@ -5469,7 +5473,7 @@ impl Host {
             let mut seen = std::collections::HashSet::new();
             for &(plan, behind) in plans {
                 plan.picked_found(differs);
-                let flags = plan
+                let flags: Vec<(usize, u32, bool)> = plan
                     .ranges
                     .iter()
                     .filter(|r| !r.picked)
@@ -5479,14 +5483,18 @@ impl Host {
                             let wanted = suspects.map_or(flagged, |s| s.wanted((r.shadow.id(), r.span.first + p), flagged));
                             (std::sync::Arc::as_ptr(&r.shadow) as usize, r.span.first + p, wanted)
                         })
-                    });
-                let fetched = flagged_pieces(flags);
+                    })
+                    .collect();
+                let fetched = flagged_pieces(&flags);
                 for r in plan.ranges.iter().filter(|r| !r.picked) {
                     let copy = std::sync::Arc::as_ptr(&r.shadow) as usize;
                     if upcheck::on() {
                         upcheck::declared(r.shadow.id(), r.span.from as usize, r.span.to as usize);
                     }
-                    for p in flagged_in_range(&fetched, copy, r.span.first, r.span.pieces) {
+                    for p in 0..r.span.pieces {
+                        if fetched.binary_search(&(copy, r.span.first + p)).is_err() {
+                            continue;
+                        }
                         let (lo, hi) = r.shadow.card_piece(&r.span, p);
                         if lo < hi && !seen.contains(&(copy, lo, hi)) {
                             let key = (r.shadow.id(), r.shadow.span().0 as usize + lo, hi - lo);
@@ -7273,7 +7281,6 @@ impl HostList {
         self.closed.store(false, Ordering::Relaxed);
         // Reuse only after the old native commands have been discarded.
         drop(texture_backs);
-        self.prelude.recycle(&prelude_pool::IDLE);
         #[cfg(feature = "diagnostics")]
         crate::copystat::add(crate::copystat::C::ResetNs, started.elapsed().as_nanos() as u64);
     }
@@ -7638,30 +7645,34 @@ impl HostList {
         if barriers.is_empty() && syncs.is_empty() {
             return None;
         }
-        self.prelude
-            .record(&prelude_pool::IDLE, |(allocator, list)| {
-                // SAFETY: the prelude is not executing and its textures are live.
-                let recorded = unsafe {
-                    allocator.Reset().and_then(|()| {
-                        list.Reset(allocator, None)?;
-                        if !to_copy.is_empty() {
-                            list.ResourceBarrier(&to_copy);
-                        }
-                        for (depth, twin, colour) in &syncs {
-                            record_twin_copy(list, &depth.texture, twin, *colour);
-                        }
-                        if !barriers.is_empty() {
-                            list.ResourceBarrier(&barriers);
-                        }
-                        list.Close()
-                    })
-                };
-                if let Err(e) = recorded {
-                    fail(format_args!("a host state prelude did not record ({e})"));
+        let Some((allocator, list)) = self
+            .prelude
+            .get_or_init(|| host().and_then(|h| h.make_prelude()))
+            .as_ref()
+        else {
+            fail(format_args!("no host list for a state prelude"));
+        };
+        // SAFETY: the prelude is not executing (every submission is waited
+        // for); the textures are live.
+        let recorded = unsafe {
+            allocator.Reset().and_then(|()| {
+                list.Reset(allocator, None)?;
+                if !to_copy.is_empty() {
+                    list.ResourceBarrier(&to_copy);
                 }
-                list.cast().ok()
+                for (depth, twin, colour) in &syncs {
+                    record_twin_copy(list, &depth.texture, twin, *colour);
+                }
+                if !barriers.is_empty() {
+                    list.ResourceBarrier(&barriers);
+                }
+                list.Close()
             })
-            .unwrap_or_else(|| fail(format_args!("no host list for a state prelude")))
+        };
+        if let Err(e) = recorded {
+            fail(format_args!("a host state prelude did not record ({e})"));
+        }
+        list.cast().ok()
     }
 
     /// Notes what the command about to be recorded does, as a marker
@@ -10314,6 +10325,7 @@ impl Meter {
                         per_frame(6) / 1e3
                     );
                 }
+                let [raw_srv, raw_uav] = crate::descriptor::host::raw_view_counts();
                 tracing::info!(
                     "{fps:.1} fps, {ms:.1} ms/frame ({cpu:.1} preparing: copies {copy_ms:.1} ms \
                      {copy_mb:.1} MB, textures {texture_ms:.1} ms {texture_mb:.1} MB; {gpu:.1} on the \
@@ -10321,7 +10333,8 @@ impl Meter {
                      dropped {dropped:.0} without a host pipeline ({making} being made) and \
                      {indirect:.0} indirect; heap buffers {picked:.1} passes {picked_ms:.1} ms;                  texture slots written so far: {placed} placed, {objects} of objects; \
                      textures picked by index: {picked_textures} uploaded so far ({picked_mb} MB), \
-                     {picked_waiting} waiting, {picked_away} passed over unmapped; depth textures with                  unordered access: {du0} made, bound as depth {du1}x, cleared as depth {du2}x,                  unordered views refused {du3}x; buffer views left null as the host would refuse them: {refused}",
+                     {picked_waiting} waiting, {picked_away} passed over unmapped; depth textures with                  unordered access: {du0} made, bound as depth {du1}x, cleared as depth {du2}x,                  unordered views refused {du3}x; buffer views left null as the host would refuse them: {refused}; \
+                     raw view clamp (past end, shortened, sub-dword, unaligned) since start: SRV {raw_srv:?}, UAV {raw_uav:?}",
                     picked_textures = crate::draw::HEAP_TEXTURES.load(Ordering::Relaxed),
                     picked_mb = crate::draw::HEAP_TEXTURE_BYTES.load(Ordering::Relaxed) >> 20,
                     picked_waiting = crate::draw::HEAP_TEXTURES_WAITING.load(Ordering::Relaxed),

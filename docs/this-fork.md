@@ -13,7 +13,7 @@ where there is one; the default is the behaviour described.
   screen while the title runs; the picture is stretched to either. DXGI's own
   Alt+Enter, which would make the swap chain exclusive full screen, is turned off.
 - **Settings for an RTX 4090 / Ryzen 9 9950X3D / 48 GB** (`scripts\play.ps1
-  -Machine 4090`, picked for any NVIDIA card; `-Machine laptop` for 16 GB of RAM,
+  -Machine 4090`, the NVIDIA default; `-Machine laptop` is an opt-in profile,
   [laptop-16gb.md](laptop-16gb.md)): the thread counts and switches
   `scripts\play.ps1` sets. `-Safe` keeps the wave-wide list there: without it four
   wave64 programs do not translate on a 32-lane card and their draws are dropped.
@@ -78,8 +78,23 @@ How each of these was found, with the numbers:
     first then waited on the host for threads that never came);
   - an operand ending at `v255` counts `v255`;
   - a lane write (`v_writelane`) inside a region a branch skips keeps the skip.
+  - **paired lanes**: a console wave of 64 runs in one host wave of 32, each thread
+    lowering two console lanes, so wave-wide sums, first-lane reads and LDS shared
+    within the console wave are exact (after ByFxbian's #1397 and #1419 on
+    fxceless/victory-fork). 28 programs take this form by default, the ones whose
+    other forms left the picture wrong: the tiled shadow mask (stair-stepped shadow
+    tiles), the water's transmission volumetrics (dark blocks on open water, the
+    view under water) and the atmospheric diffusion with its depth scan (a halo at
+    silhouettes against the sky). `VICTORY_WAVE_PAIRS_ONLY=<log hashes>` names other
+    programs (`none`: none), `VICTORY_WAVE_PAIRS=1` tries the form for every wave64
+    compute program that needs it, and `VICTORY_WAVE_PAIRS_FP32=non-ieee-rne-ftz`
+    confirms the guest float mode for the ordered FP32 reductions of programs that
+    are not on the default list.
 - The translator's version is 2: the shader cache translates again what version 1
   made.
+
+- **Chromatic probe cleanup** is off by default pending G14 scene/video validation. `VICTORY_AMBIENT_CHROMATIC_SCRUB=1` opts in to the experimental magenta/violet/green/cyan rejection.
+- **Raw-view range clamp** is off by default pending G14 counter review; `VICTORY_RAW_VIEW_CLAMP=1` opts in. Unset uses the requested range without a `GetDesc()` call.
 
 ## Loading and the runtime
 
@@ -103,7 +118,16 @@ How each of these was found, with the numbers:
 - **Scripted keys** (`VICTORY_KEYS_FILE`): the file is taken by renaming it before
   it is read, so a batch written meanwhile is never deleted unread.
 
+- **Mono DSP comparison** (`VICTORY_DSP_MONO_PASSTHROUGH=1`): passes
+  mono DSP blocks to the output at unity gain instead of returning silence.
+  Use `-More @{VICTORY_DSP_MONO_PASSTHROUGH='1'}` to compare the same phone
+  call with the option off and on. This is a dry diagnostic workaround, not
+  an implementation of the title's DSP effects; stereo and unreadable blocks
+  keep the silence fallback. [Dialogue report](https://github.com/TaynanGT/Vice-Tay/issues/259)
+
 ## Measuring
+
+- **Card dirty queue**: changed GPU-card copies are now queued as their CPU-side ranges change, so each submission visits the changed copies instead of walking every card copy. It is on by default; `VICTORY_CARD_DIRTY_QUEUE=0` restores the old walk, and `VICTORY_AB=<seconds>,VICTORY_CARD_DIRTY_QUEUE` compares both modes in one run. In upstream PR [#251](https://github.com/TaynanGT/Vice-Tay/pull/251), the `shadow::card_dirty` share of submit-thread samples fell from 3.45% to 0.93% on one RTX 5070 Ti test. That test did not establish an FPS gain; the frame-rate difference was within run-to-run noise.
 
 - Every host list that ran is kept for reuse.
 - Frame dumps (`VICTORY_CAPTURE`) are encoded on a thread of their own, and the
