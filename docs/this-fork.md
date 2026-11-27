@@ -93,6 +93,9 @@ How each of these was found, with the numbers:
 - The translator's version is 2: the shader cache translates again what version 1
   made.
 
+- **Chromatic probe cleanup** is off by default pending G14 scene/video validation. `VICTORY_AMBIENT_CHROMATIC_SCRUB=1` opts in to the experimental magenta/violet/green/cyan rejection.
+- **Raw-view range clamp** is off by default pending G14 counter review; `VICTORY_RAW_VIEW_CLAMP=1` opts in. Unset uses the requested range without a `GetDesc()` call.
+
 ## Loading and the runtime
 
 - **DirectStorage**: a queue submits itself when it holds half its capacity, unless
