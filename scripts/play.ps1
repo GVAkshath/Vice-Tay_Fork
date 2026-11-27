@@ -11,7 +11,7 @@
 # -Fsr4K        PC FidelityFX at 3840x2160 (quality, balanced or performance)
 # -Dlss4K       NVIDIA DLSS at 3840x2160 (quality, balanced or performance); FSR if it cannot start
 # -Build        target\diag (the default, the build all measurements are of) or target\release
-# -Machine      auto (NVIDIA + ~16 GiB RAM -> laptop; otherwise vendor default),
+# -Machine      auto (vendor default; laptop preset is explicit),
 #               7900xtx, 4070, 4090 or laptop
 #               (laptop: an NVIDIA PC with 16 GB of RAM and a 6-8 GB card, docs/laptop-16gb.md)
 # -More         other settings: -More @{VICTORY_PANEL='1'} or -More @{VICTORY_AMBIENT='1.0'}
@@ -48,13 +48,9 @@ $controllers = @(if ($Machine -in 'auto', '7900xtx') {
 })
 $hasNvidia = [bool]($controllers.PNPDeviceID -match 'VEN_10DE')
 if ($Machine -eq 'auto') {
-    # Do not apply the high-memory NVIDIA preset to a 16 GiB-class PC.
-    # The laptop profile caps the title working set, bypasses Windows' file
-    # cache for game reads, and places bounded windows in the card's memory.
-    # Use a range around 16 GiB to allow for OEM reporting and reserved memory.
-    $lowMemoryNvidia = $hasNvidia -and $ram -ge 14GB -and $ram -lt 18GB
-    # The 4070 / 7800X3D profile remains an explicit choice.
-    $Machine = if ($lowMemoryNvidia) { 'laptop' } elseif ($hasNvidia) { '4090' } else { '7900xtx' }
+    # The laptop preset was measured on one RTX 3050 laptop only.
+    # Keep it explicit until G14 and desktop behavior are benchmarked.
+    $Machine = if ($hasNvidia) { '4090' } else { '7900xtx' }
 }
 if ($Machine -eq '7900xtx') {
     # i9-12900K, RX 7900 XTX, 64 GB: the page-mapping lock was fastest with one
