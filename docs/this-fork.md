@@ -115,14 +115,16 @@ How each of these was found, with the numbers:
 - **Scripted keys** (`VICTORY_KEYS_FILE`): the file is taken by renaming it before
   it is read, so a batch written meanwhile is never deleted unread.
 
-- **Mono DSP comparison** (\`VICTORY_DSP_MONO_PASSTHROUGH=1\`): passes
+- **Mono DSP comparison** (`VICTORY_DSP_MONO_PASSTHROUGH=1`): passes
   mono DSP blocks to the output at unity gain instead of returning silence.
-  Use \`-More @{VICTORY_DSP_MONO_PASSTHROUGH='1'}\` to compare the same phone
+  Use `-More @{VICTORY_DSP_MONO_PASSTHROUGH='1'}` to compare the same phone
   call with the option off and on. This is a dry diagnostic workaround, not
   an implementation of the title's DSP effects; stereo and unreadable blocks
   keep the silence fallback. [Dialogue report](https://github.com/TaynanGT/Vice-Tay/issues/259)
 
 ## Measuring
+
+- **Card dirty queue**: changed GPU-card copies are now queued as their CPU-side ranges change, so each submission visits the changed copies instead of walking every card copy. It is on by default; `VICTORY_CARD_DIRTY_QUEUE=0` restores the old walk, and `VICTORY_AB=<seconds>,VICTORY_CARD_DIRTY_QUEUE` compares both modes in one run. In upstream PR [#251](https://github.com/TaynanGT/Vice-Tay/pull/251), the `shadow::card_dirty` share of submit-thread samples fell from 3.45% to 0.93% on one RTX 5070 Ti test. That test did not establish an FPS gain; the frame-rate difference was within run-to-run noise.
 
 - Every host list that ran is kept for reuse.
 - Frame dumps (`VICTORY_CAPTURE`) are encoded on a thread of their own, and the
