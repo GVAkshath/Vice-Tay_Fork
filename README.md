@@ -193,6 +193,7 @@ For banding that varies between launches, add `-More @{VICTORY_RTV_FORMAT_LOG='1
 - **Loader and runtime.** `victory-loader` maps the title executable. `victory-hle` supplies the console services it expects. [Architecture](docs/architecture.md)
 - **Graphics.** `victory-gpu` maps console command lists and resource views to host D3D12. `victory-shader` recompiles shaders, including Xbox wave64 programs on NVIDIA hardware. Vice-Tay reclaims temporary resource views when the GPU finishes using them, reducing dropped draws when the descriptor heap fills. [Changes in Vice-Tay](docs/this-fork.md)
 - **Verification.** CI runs Clippy, the workspace tests in default and diagnostics configurations, and the asset policy check. Performance changes are compared on the same route, build base and session length. [Test procedure and run logs](docs/tests.md) · [CI workflow](.github/workflows/ci.yml)
+- **Shader triage.** [Collect a repeatable shader and pipeline report](docs/shader-triage.md) with the offline precompiler, per-program translator report and optional used-pipeline warm-up.
 
 See the [upstream usage notes](docs/README-fxceless.md) for additional commands and [frame replay](docs/replay.md) for capturing and replaying a frame locally.
 
