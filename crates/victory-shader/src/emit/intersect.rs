@@ -164,7 +164,6 @@ impl<'a> Lower<'a> {
             // No structures: a box enters no child, anything else is missed
             // ([`no_hit`]). Nothing is read, and nothing is asked of the
             // directory of title memory.
-            let _ = &ray;
             let (k4, k6) = (self.s.m.i32(4), self.s.m.i32(6));
             let pair = self.s.m.bin(c, Bin::And, pointer, k6);
             let is_box = self.s.m.cmp(c, pred::EQ, pair, k4);
