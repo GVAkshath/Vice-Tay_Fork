@@ -211,8 +211,8 @@ pub fn builder_bounds() -> bool {
 }
 
 /// Whether ray-tracing node tests answer "no hit" and read nothing
-/// (auto-on whenever `VICTORY_BVH_BUILDER` is not `1`; `VICTORY_BVH_NO_HIT=0`
-/// restores the full traversal; never on with `VICTORY_BVH_BUILDER=1`).
+/// (opt-in with `VICTORY_BVH_NO_HIT=1`; unset or `0` keeps full traversal;
+/// never on with `VICTORY_BVH_BUILDER=1`).
 /// Part of the translation: the shader cache keys on it (`victory-gpu`'s does).
 pub fn bvh_no_hit() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -229,7 +229,7 @@ pub(crate) fn bvh_no_hit_for(
     no_hit_env: Option<&std::ffi::OsStr>,
     builder_env: Option<&std::ffi::OsStr>,
 ) -> bool {
-    no_hit_env.is_none_or(|v| v != "0") && builder_env.is_none_or(|v| v != "1")
+    no_hit_env.is_some_and(|v| v == "1") && builder_env.is_none_or(|v| v != "1")
 }
 
 /// The clean-up passes that run over a translated program before it is
