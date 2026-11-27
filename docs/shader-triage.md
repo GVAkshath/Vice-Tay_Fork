@@ -37,6 +37,49 @@ binaries or pipeline-library binaries. Logs may still contain local paths,
 device details and title-relative addresses; review and redact them before
 posting publicly.
 
+## Replay a timed input plan
+
+Vice-Tay's GameInput layer includes a test hook for timed keyboard input. It
+reads a file named by `VICTORY_KEYS_FILE`; each line contains `<key> <seconds>`.
+The game takes the file by renaming it to `.taken`, reads it, then removes it.
+This avoids losing a batch written while the previous batch is being consumed.
+
+Start Vice-Tay with a dedicated file path (keep it outside the checkout):
+
+```powershell
+$keys = Join-Path $env:TEMP 'vice-tay-keys.txt'
+.\scripts\play.ps1 -Exe 'D:\victory-data\game\game.exe' -Console series-s -Machine auto -Windowed -More @{ VICTORY_KEYS_FILE = $keys }
+```
+
+Wait until the game is at the menu or scene you want to reproduce. In a second
+PowerShell window, prepare a CSV input plan:
+
+```csv
+AtSeconds,Key,HoldSeconds
+0.0,Enter,0.15
+4.0,Enter,0.15
+8.0,W,1.0
+10.0,Right,0.25
+```
+
+Run the sender using the same key-file path:
+
+```powershell
+.\scripts\send-key-sequence.ps1 -KeyFile (Join-Path $env:TEMP 'vice-tay-keys.txt') -Plan .\my-route.csv
+```
+
+`AtSeconds` is relative to the sender's start; rows with the same offset are
+sent together. `HoldSeconds` must be 0.05–30 seconds. Supported names are a
+single letter or digit, `Enter`, `Esc`, `Tab`, `Back`, `Up`, `Down`, `Left`,
+and `Right`. The game polls at most every 50 ms. Start the sender after the
+game reaches the desired start screen so offsets are relative to a repeatable
+scene rather than variable startup time.
+
+Use the same save/checkpoint, camera, resolution and profile when comparing
+runs. The script drives input only; it does not verify that a menu action or
+movement succeeded. Record the session with
+`run-diagnostic-session.ps1` and inspect the video/logs for the actual result.
+
 ## Capture a game session
 
 Run the game through the normal launcher while retaining console output and

@@ -195,6 +195,7 @@ For banding that varies between launches, add `-More @{VICTORY_RTV_FORMAT_LOG='1
 - **Verification.** CI runs Clippy, the workspace tests in default and diagnostics configurations, and the asset policy check. Performance changes are compared on the same route, build base and session length. [Test procedure and run logs](docs/tests.md) · [CI workflow](.github/workflows/ci.yml)
 - **Shader triage.** [Collect a repeatable shader and pipeline report](docs/shader-triage.md) with the offline precompiler, per-program translator report and optional used-pipeline warm-up.
 - **Gameplay diagnostics.** [Capture a reproducible game session](docs/shader-triage.md#capture-a-game-session) with console logs, executable hashes, shader-failure dumps and pipeline-book warm-up.
+- **Input replay.** [Send timed keyboard sequences](docs/shader-triage.md#replay-a-timed-input-plan) through the project's GameInput test hook for repeatable menu and scene setup.
 
 See the [upstream usage notes](docs/README-fxceless.md) for additional commands and [frame replay](docs/replay.md) for capturing and replaying a frame locally.
 
