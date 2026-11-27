@@ -1292,7 +1292,10 @@ mod tests {
         let mut ran = 0;
         for (label, software) in [("hardware", false), ("warp", true)] {
             let Some(mut harness) = WarpHarness::on(software) else {
-                eprintln!("no {label} D3D12 device; skipped");
+                if software {
+                    panic!("D3D12 WARP device unavailable: this test must run on Windows CI");
+                }
+                eprintln!("optional hardware adapter unavailable; WARP coverage remains required");
                 continue;
             };
             let pass = make(
