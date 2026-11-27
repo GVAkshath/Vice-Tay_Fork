@@ -37,6 +37,32 @@ binaries or pipeline-library binaries. Logs may still contain local paths,
 device details and title-relative addresses; review and redact them before
 posting publicly.
 
+## Capture a game session
+
+Run the game through the normal launcher while retaining console output and
+the exact build, title executable hash, hardware and settings used for that
+session:
+
+```powershell
+.\scripts\run-diagnostic-session.ps1 `
+  -Exe 'D:\victory-data\game\game.exe' `
+  -Console series-s `
+  -Machine auto `
+  -Windowed `
+  -CaptureFailedShaderDumps `
+  -WarmUsedPipelines
+```
+
+The wrapper always records a pipeline book for the run, so `warm --used` can
+revisit pipelines observed during gameplay. Failed shader dumps are optional
+because they contain game-derived shader data; they are kept outside the
+checkout. The session folder contains `console.log`, `session.json`, an
+optional `failed-shaders` directory, and an optional `pipeline-warm.log`.
+
+Share the full folder only after reviewing local paths and any title-derived
+shader dumps. For public bug reports, remove the `failed-shaders` directory
+unless the receiving maintainer specifically asks for those binaries.
+
 A successful command exit means the offline operation completed according to
 its cache contract. It does not prove that every shader is supported or that
 the game renders correctly. Compare the failure list, the game's diagnostic
