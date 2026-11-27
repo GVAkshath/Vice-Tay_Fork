@@ -3086,7 +3086,7 @@ fn flagged_in_range(
 
 #[cfg(test)]
 mod relay_tests {
-    use super::{flagged_pieces, landable};
+    use super::{flagged_in_range, flagged_pieces, landable};
 
     /// Two flights and what follows each: nothing of the second lands
     /// before the card has run it, and nothing behind a flight lands
@@ -3122,6 +3122,39 @@ mod relay_tests {
         assert!(!fetch.contains(&(b, 3)));
         assert!(fetch.contains(&(b, 9)));
         assert_eq!(fetch.len(), 2);
+    }
+
+    #[test]
+    fn visiting_flagged_pieces_matches_scanning_each_range() {
+        let flags = [
+            (2, 5, true),
+            (1, 34, true),
+            (1, 2, true),
+            (1, 7, false),
+            (1, 34, false),
+            (1, 8, true),
+            (1, 34, true),
+            (1, 6, true),
+            (2, u32::MAX, true),
+        ];
+        let fetch = flagged_pieces(flags.into_iter());
+        for (copy, first, count) in [
+            (0, 0, 40),
+            (1, 0, 40),
+            (1, 6, 29),
+            (1, 8, 26),
+            (1, 34, 0),
+            (1, 35, 2),
+            (2, 4, 3),
+            (2, u32::MAX - 1, 2),
+            (3, 0, 40),
+        ] {
+            let scanned: Vec<_> = (0..count)
+                .filter(|&p| fetch.binary_search(&(copy, first + p)).is_ok())
+                .collect();
+            let selected: Vec<_> = flagged_in_range(&fetch, copy, first, count).collect();
+            assert_eq!(selected, scanned);
+        }
     }
 }
 
@@ -4807,8 +4840,7 @@ impl Host {
         let before = private_bytes();
         let list = self.make_list();
         LISTS[0].fetch_add(1, Ordering::Relaxed);
-        // (May shrink while a list is made, on another thread's account:
-        // added as it is, the sum is what counts.)
+        // Keep the sign of each process-wide change in the sum.
         #[cfg(feature = "diagnostics")]
         LISTS[2].fetch_add(private_bytes().wrapping_sub(before), Ordering::Relaxed);
         #[cfg(feature = "diagnostics")]
