@@ -103,6 +103,13 @@ How each of these was found, with the numbers:
 - **Scripted keys** (`VICTORY_KEYS_FILE`): the file is taken by renaming it before
   it is read, so a batch written meanwhile is never deleted unread.
 
+- **Mono DSP comparison** (\`VICTORY_DSP_MONO_PASSTHROUGH=1\`): passes
+  mono DSP blocks to the output at unity gain instead of returning silence.
+  Use \`-More @{VICTORY_DSP_MONO_PASSTHROUGH='1'}\` to compare the same phone
+  call with the option off and on. This is a dry diagnostic workaround, not
+  an implementation of the title's DSP effects; stereo and unreadable blocks
+  keep the silence fallback. [Dialogue report](https://github.com/TaynanGT/Vice-Tay/issues/259)
+
 ## Measuring
 
 - Every host list that ran is kept for reuse.

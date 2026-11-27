@@ -11,14 +11,13 @@
 //!
 //! The transforms themselves are not computed: the hardware takes impulse
 //! responses already in its own partitioned frequency-domain layout, which
-//! is not known. Outputs are silence, so reverb returns are dry.
-// shortcut: no convolution or block transform; outputs are zeros. Needs the
-// coprocessor's impulse response and spectrum layouts to do better.
+//! is not known. The default output is silence. `VICTORY_DSP_MONO_PASSTHROUGH=1`
+//! enables a dry output for mono blocks, at unity gain.
 #![allow(non_snake_case)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use std::ffi::c_void;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use super::xasync::E_INVALIDARG;
 use super::xgameruntime::{HRESULT, S_OK};
@@ -31,6 +30,10 @@ const CONVOLUTION: u32 = 1;
 /// Option bits that need a stereo stream, and one convolution refuses.
 const STEREO_OPTIONS: u32 = 2 | 8;
 const NOT_FOR_CONVOLUTION: u32 = 4;
+
+static MONO_PASSTHROUGH: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var_os("VICTORY_DSP_MONO_PASSTHROUGH").is_some_and(|value| value == "1")
+});
 
 pub struct Dsp {
     max_streams: u32,
@@ -195,7 +198,56 @@ pub extern "system" fn XDspDeactivate(stream: *mut Stream) -> HRESULT {
     S_OK
 }
 
-/// Completes the command at once: its output block is silence.
+#[cfg(windows)]
+fn copy_mono_input(command: &Command, samples: usize) -> bool {
+    use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    // One valid mono stream block. Stage the read before touching the output
+    // so overlapping buffers and a failed or partial read are safe.
+    let mut block = [0.0f32; 0x800];
+    if samples > block.len() {
+        return false;
+    }
+    let bytes = samples * size_of::<f32>();
+    let mut copied = 0;
+    // SAFETY: the destination is a live scratch buffer of at least bytes.
+    // The OS reads only from this process and reports inaccessible input.
+    let read = unsafe {
+        ReadProcessMemory(
+            GetCurrentProcess(),
+            command.input.cast(),
+            block.as_mut_ptr().cast(),
+            bytes,
+            &mut copied,
+        )
+    };
+    if read == 0 || copied != bytes {
+        return false;
+    }
+    // SAFETY: the title's output buffer holds one block of the stream.
+    unsafe { std::ptr::copy(block.as_ptr(), command.output, samples) };
+    true
+}
+
+#[cfg(not(windows))]
+fn copy_mono_input(_command: &Command, _samples: usize) -> bool {
+    false
+}
+
+fn write_output(stream: &Stream, command: &Command, dry: bool) {
+    if command.output.is_null() {
+        return;
+    }
+    let samples = (stream.frames * stream.channels) as usize;
+    if dry && stream.channels == 1 && !command.input.is_null() && copy_mono_input(command, samples) {
+        return;
+    }
+    // SAFETY: the title's output buffer holds one block of the stream.
+    unsafe { std::ptr::write_bytes(command.output, 0, samples) };
+}
+
+/// Completes the command and publishes its status.
 pub extern "system" fn XDspSubmitCommand(
     stream: *mut Stream,
     command: *const Command,
@@ -206,11 +258,7 @@ pub extern "system" fn XDspSubmitCommand(
     }
     // SAFETY: a stream from `XDspActivate`, the title's command.
     let (stream, command) = unsafe { (&mut *stream, &*command) };
-    if !command.output.is_null() {
-        let samples = (stream.frames * stream.channels) as usize;
-        // SAFETY: the title's output buffer holds one block of the stream.
-        unsafe { std::ptr::write_bytes(command.output, 0, samples) };
-    }
+    write_output(stream, command, *MONO_PASSTHROUGH);
     let status = &mut *stream.status;
     let next = status.submitted.wrapping_add(1);
     // SAFETY: the status block is read by title code on other threads.
@@ -243,6 +291,50 @@ pub(crate) fn module() -> HleModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn mono_passthrough_copies_one_block_and_preserves_the_silence_fallback() {
+        let mut stream = Stream {
+            dsp: std::ptr::null_mut(),
+            frames: 0x200,
+            channels: 1,
+            status: Box::new(Status {
+                submitted: 0,
+                completed: 0,
+                reserved: 0,
+                result: S_OK,
+            }),
+        };
+        let input = [0.25f32; 0x200];
+        let mut output = [1.0f32; 0x400];
+        let mut command = Command {
+            gains: [1.0; 2],
+            input: input.as_ptr(),
+            output: output.as_mut_ptr(),
+            reserved: 0,
+        };
+        write_output(&stream, &command, true);
+        assert_eq!(&output[..0x200], &input);
+        assert!(output[0x200..].iter().all(|&sample| sample == 1.0));
+
+        command.input = output.as_ptr();
+        write_output(&stream, &command, true);
+        assert_eq!(&output[..0x200], &input);
+
+        write_output(&stream, &command, false);
+        assert!(output[..0x200].iter().all(|&sample| sample == 0.0));
+        output.fill(1.0);
+        command.input = std::ptr::null();
+        write_output(&stream, &command, true);
+        assert!(output[..0x200].iter().all(|&sample| sample == 0.0));
+
+        output.fill(1.0);
+        stream.channels = 2;
+        command.input = input.as_ptr();
+        write_output(&stream, &command, true);
+        assert!(output.iter().all(|&sample| sample == 0.0));
+    }
 
     #[test]
     fn convolution_stream_as_the_title_drives_it() {
