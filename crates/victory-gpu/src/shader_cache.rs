@@ -167,14 +167,16 @@ pub(crate) fn translation() -> [u8; 32] {
 /// can do decides the form of some programs.
 pub fn precompile(container: &[u8]) -> Result<bool, String> {
     let _ = crate::host::host();
-    let misses = MISSES.load(Ordering::Relaxed);
-    let translate = |c: &[u8]| victory_shader::emit::translate(c).map_err(|e| e.to_string());
-    match CACHE.get() {
-        Some(cache) => cached(cache, &build(), container, translate, true)?,
-        None => translate(container)?,
+    let Some(cache) = CACHE.get() else {
+        return Err("shader cache is unavailable; offline precompilation requires a writable cache".into());
     };
-    // (Counts other threads' misses too: the caller only adds them up.)
-    Ok(MISSES.load(Ordering::Relaxed) == misses)
+    let translate = |c: &[u8]| victory_shader::emit::translate(c).map_err(|e| e.to_string());
+    let (_, was_cached) = cached_with(cache, &build(), container, translate, true, true)?;
+    Ok(was_cached)
+}
+}
+
+/// The translation of a console shader container
 }
 
 /// The translation of a console shader container, from the cache when
@@ -223,6 +225,21 @@ fn cached(
     translate: impl Fn(&[u8]) -> Result<HostShader, String> + Send + Sync,
     refresh: bool,
 ) -> Result<HostShader, String> {
+    cached_with(cache, build, container, translate, refresh, false)
+        .map(|(shader, _)| shader)
+}
+
+/// Like `cached`, returning whether the result came from a readable cache
+/// entry. Offline commands require successful persistence; gameplay retains
+/// its in-memory fallback when the cache is unavailable or unwritable.
+fn cached_with(
+    cache: &Cache,
+    build: &[u8; 32],
+    container: &[u8],
+    translate: impl Fn(&[u8]) -> Result<HostShader, String> + Send + Sync,
+    refresh: bool,
+    require_cache_write: bool,
+) -> Result<(HostShader, bool), String> {
     let per_shader_build = victory_shader::emit::wave_wide_cache_override(container)
         .map_or(*build, |enabled| {
             *blake3::Hasher::new()
@@ -232,9 +249,9 @@ fn cached(
                 .finalize()
                 .as_bytes()
         });
-    cached_by(cache, &per_shader_build, SOURCE, container, translate, refresh)
+    cached_by_with(cache, &per_shader_build, SOURCE, container, translate, refresh, require_cache_write)
 }
-
+/// [`cached`] with the build of the translator given (`source`).
 /// [`cached`] with the build of the translator given (`source`).
 fn cached_by(
     cache: &Cache,
@@ -244,6 +261,22 @@ fn cached_by(
     translate: impl Fn(&[u8]) -> Result<HostShader, String> + Send + Sync,
     refresh: bool,
 ) -> Result<HostShader, String> {
+    cached_by_with(cache, build, source, container, translate, refresh, false)
+        .map(|(shader, _)| shader)
+}
+
+/// Strict cache handling for offline precompilation. A runtime translation
+/// may be used immediately even if its disk write fails, but an offline
+/// command must not report that shader as precompiled in that case.
+fn cached_by_with(
+    cache: &Cache,
+    build: &[u8; 32],
+    source: &str,
+    container: &[u8],
+    translate: impl Fn(&[u8]) -> Result<HostShader, String> + Send + Sync,
+    refresh: bool,
+    require_cache_write: bool,
+) -> Result<(HostShader, bool), String> {
     let input = [&build[..], container].concat();
     let mut converter = Translate {
         translate,
@@ -258,6 +291,9 @@ fn cached_by(
             match entry {
                 Ok(path) => tracing::debug!(path = %path.display(), "shader translated and cached"),
                 Err(error) => {
+                    if require_cache_write {
+                        return Err(format!("shader translated but cache write failed: {error:#}"));
+                    }
                     static WARNED: AtomicBool = AtomicBool::new(false);
                     if !WARNED.swap(true, Ordering::Relaxed) {
                         tracing::warn!(%error, "shader cache write failed; using the translation in memory");
@@ -270,7 +306,7 @@ fn cached_by(
                     CHANGED.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            return Ok(shader);
+            return Ok((shader, false));
         }
         let path = entry.map_err(|e| format!("{e:#}"))?;
         if let Some((shader, made_by)) = std::fs::read(&path).ok().and_then(|b| decode(&b)) {
@@ -291,13 +327,18 @@ fn cached_by(
             }
             HITS.fetch_add(1, Ordering::Relaxed);
             tracing::debug!(path = %path.display(), "shader from the cache");
-            return Ok(shader);
+            return Ok((shader, true));
         }
         tracing::debug!(path = %path.display(), "unreadable shader cache entry; translating again");
         let _ = std::fs::remove_file(&path);
     }
     MISSES.fetch_add(1, Ordering::Relaxed);
-    (converter.translate)(container)
+    let shader = (converter.translate)(container)?;
+    if require_cache_write {
+        Err("shader translated but no readable cache entry could be persisted after three attempts".into())
+    } else {
+        Ok((shader, false))
+    }
 }
 
 const MAGIC: &[u8; 4] = b"VSH2";
@@ -564,9 +605,14 @@ mod tests {
         std::fs::remove_file(&entries[0]).unwrap();
         std::fs::create_dir(&entries[0]).unwrap();
 
-        assert_eq!(cached(&cache, &build, container, translate, false), Ok(shader()));
+        let strict = cached_with(&cache, &build, container, translate, false, true);
+        assert!(strict.unwrap_err().contains("cache"), "offline precompile must report the failed cache write");
         assert_eq!(runs.load(Ordering::Relaxed), 2);
         assert!(entries[0].is_dir());
+
+        // Gameplay must retain its existing in-memory fallback.
+        assert_eq!(cached(&cache, &build, container, translate, false), Ok(shader()));
+        assert_eq!(runs.load(Ordering::Relaxed), 3);
         let fail = |_: &[u8]| Err::<HostShader, _>("unsupported".to_owned());
         assert!(cached(&cache, &build, container, fail, false).unwrap_err().contains("unsupported"));
     }
