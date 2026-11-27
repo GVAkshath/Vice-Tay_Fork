@@ -359,7 +359,7 @@ fn feature_levels(data: *mut c_void) -> HRESULT {
 extern "system" fn unknown_pipeline<const SLOT: usize>(
     _: This,
     desc: *const u8,
-    _iid: *const Iid,
+    iid: *const Iid,
     out: *mut This,
 ) -> HRESULT {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -388,9 +388,21 @@ extern "system" fn unknown_pipeline<const SLOT: usize>(
         let first = description
             .as_ref()
             .and_then(|w| words(w[0] as usize));
+        #[cfg(windows)]
+        let requested_iid = {
+            let mut bytes = [0u8; 16];
+            (!iid.is_null() && crate::host::read_into(iid.cast(), &mut bytes))
+                .then(|| guid_text(&bytes))
+        };
+        #[cfg(not(windows))]
+        let requested_iid = None::<String>;
         tracing::warn!(
             slot = format_args!("{:#x}", SLOT),
             calls,
+            description_pointer = format_args!("{:p}", desc),
+            requested_iid_pointer = format_args!("{:p}", iid),
+            requested_iid = ?requested_iid,
+            output_pointer = format_args!("{:p}", out),
             description = format_args!("{description:x?}"),
             first_points_at = format_args!("{first:x?}"),
             "a pipeline creation method that is not implemented: the title goes without this pipeline"
