@@ -146,6 +146,10 @@ fn build() -> [u8; 32] {
         if victory_shader::emit::constants_raw() {
             bytes.extend_from_slice(b"VICTORY_PORT_CBV=1");
         }
+        // Separate translations that deliberately skip BVH traversal from full traversal.
+        if victory_shader::emit::bvh_no_hit() {
+            bytes.extend_from_slice(b"VICTORY_BVH_NO_HIT=1\0");
+        }
         bytes
     });
     let mut hash = blake3::Hasher::new();
