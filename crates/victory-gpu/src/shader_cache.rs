@@ -174,10 +174,6 @@ pub fn precompile(container: &[u8]) -> Result<bool, String> {
     let (_, was_cached) = cached_with(cache, &build(), container, translate, true, true)?;
     Ok(was_cached)
 }
-}
-
-/// The translation of a console shader container
-}
 
 /// The translation of a console shader container, from the cache when
 /// there is one.
@@ -251,7 +247,6 @@ fn cached_with(
         });
     cached_by_with(cache, &per_shader_build, SOURCE, container, translate, refresh, require_cache_write)
 }
-/// [`cached`] with the build of the translator given (`source`).
 /// [`cached`] with the build of the translator given (`source`).
 fn cached_by(
     cache: &Cache,
