@@ -584,6 +584,7 @@ void raise(uint3 at : SV_DispatchThreadID) {
     found = lerp(found, cells[CELLS].rgb, 0.2) * level * open;
     float3 was = unpack(light[p]);
     float left = dot(was, LUMA);
+#ifdef CHROMATIC_SCRUB
     // Magenta (green far below red and blue) is what the probes' memory held, not light.
     if (was.g < 0.5 * min(was.r, was.b) && max(was.r, was.b) > 0.02) was = 0.0;
     // Bluer violet probe leftovers (blue over 2.5x green and over red) survive
@@ -596,6 +597,7 @@ void raise(uint3 at : SV_DispatchThreadID) {
     // blue sky stay within these channel ratios.
     if (was.g > 2.5 * max(was.r, was.b) && was.g > 0.02) was = 0.0;
     if (was.r < 0.35 * min(was.g, was.b) && max(was.g, was.b) > 0.02) was = 0.0;
+#endif
     // What the program left counts as far as it can be true: the sky's light
     // outdoors, not the blocks of other memory.
     // For `fresh` seconds after the light around jumped (a new room) the
@@ -650,12 +652,14 @@ fn make(
     device: &ID3D12Device,
     buffer: impl Fn(u64) -> Option<ID3D12Resource>,
     reflection_hold: bool,
+    chromatic_scrub: bool,
 ) -> windows::core::Result<Pass> {
     let mut root: Option<ID3D12RootSignature> = None;
     let mut resolve_root: Option<ID3D12RootSignature> = None;
     let mut indirect_root: Option<ID3D12RootSignature> = None;
     let mut pipeline = |part: &str, entry| -> windows::core::Result<ID3D12PipelineState> {
-        let code = crate::host::compile(&format!("#define {part}\n{SOURCE}"), entry, s!("cs_5_1"))?;
+        let chromatic = if part == "RAISE" && chromatic_scrub { "#define CHROMATIC_SCRUB\\n" } else { "" };
+        let code = crate::host::compile(&format!("#define {part}\\n{chromatic}{SOURCE}"), entry, s!("cs_5_1"))?;
         let root = match part {
             "PLACE" | "GATHER" | "RAISE" => &mut resolve_root,
             "HOLD_INDIRECT" => &mut indirect_root,
@@ -718,7 +722,7 @@ fn pass() -> Option<&'static Pass> {
     static PASS: OnceLock<Option<Pass>> = OnceLock::new();
     PASS.get_or_init(|| {
         let host = host()?;
-        make(&host.device, |bytes| host.uav_buffer(bytes), !reflect_in().is_empty())
+        make(&host.device, |bytes| host.uav_buffer(bytes), !reflect_in().is_empty(), std::env::var_os("VICTORY_AMBIENT_CHROMATIC_SCRUB").is_some_and(|v| v == "1"))
             .inspect_err(|e| tracing::warn!(error = %e, "no stand-in for the indirect light"))
             .ok()
     })
@@ -1042,7 +1046,7 @@ mod tests {
         let Some(host) = host() else {
             return;
         };
-        make(&host.device, |bytes| host.uav_buffer(bytes), true).expect("the passes");
+        make(&host.device, |bytes| host.uav_buffer(bytes), true, true).expect("the passes");
     }
 
     /// The hold of the reflections compiles with the system's compiler too
@@ -1070,7 +1074,7 @@ mod tests {
             }
         }
         let mut warp = WarpHarness::new().expect("a D3D12 WARP adapter");
-        let pass = make(&warp.device, |bytes| Some(warp.default_uav(bytes)), true).unwrap();
+        let pass = make(&warp.device, |bytes| Some(warp.default_uav(bytes)), true, true).unwrap();
         let (root, pso) = pass.hold_indirect.as_ref().expect("the guarded hold PSO");
         let (initial, initial_bytes, _) = warp.shared_buffer(256);
         let (readback, readback_bytes, _) = warp.shared_buffer(256);
@@ -1295,6 +1299,7 @@ mod tests {
                 &harness.device,
                 |bytes| Some(harness.default_uav(bytes)),
                 false,
+                true,
             )
             .expect("ambient passes build");
 
